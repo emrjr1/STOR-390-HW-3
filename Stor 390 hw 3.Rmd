@@ -1,0 +1,203 @@
+---
+title: "HW 3"
+author: "Eric Rash"
+date: "2/27/2024"
+output:
+  pdf_document: default
+  html_document:
+    number_sections: yes
+---
+
+# 
+
+In this homework, we will discuss support vector machines and tree-based methods.  I will begin by simulating some data for you to use with SVM. 
+
+```{r}
+library(e1071)
+set.seed(1) 
+x=matrix(rnorm(200*2),ncol=2)
+x[1:100,]=x[1:100,]+2
+x[101:150,]=x[101:150,]-2
+y=c(rep(1,150),rep(2,50))
+dat=data.frame(x=x,y=as.factor(y))
+plot(x, col=y)
+
+```
+
+
+##
+
+Quite clearly, the above data is not linearly separable.  Create a training-testing partition with 100 random observations in the training partition.  Fit an svm on this training data using the radial kernel, and tuning parameters $\gamma=1$, cost $=1$.  Plot the svm on the training data.  
+
+```{r}
+set.seed(55)
+##creates test/train partition
+train_index <- sample(1:200, 100)
+train_data <- dat[train_index, ]
+test_data <- dat[-train_index, ]
+##fits SVM using radial kernel
+model <- svm(y ~ ., data=train_data, kernel = "radial", gamma = 1, cost = 1)
+##plots SVM on training data
+plot(model, train_data)
+```
+
+##
+
+Notice that the above decision boundary is decidedly non-linear.  It seems to perform reasonably well, but there are indeed some misclassifications.  Let's see if increasing the cost ^[Remember this is a parameter that decides how smooth your decision boundary should be] helps our classification error rate.  Refit the svm with the radial kernel, $\gamma=1$, and a cost of 10000.  Plot this svm on the training data. 
+
+```{r}
+model <- svm(y ~ ., data=train_data, kernel = "radial", gamma = 1, cost = 10000)
+plot(model, train_data)
+```
+
+##
+
+It would appear that we are better capturing the training data, but comment on the dangers (if any exist), of such a model. 
+
+The big concern here is overfitting the data. There is a chance that substatially increasing the cost in our model will make it much more likely to be affected by noise or outliers.
+
+##
+
+Create a confusion matrix by using this svm to predict on the current testing partition.  Comment on the confusion matrix.  Is there any disparity in our classification results?    
+
+```{r}
+#remove eval = FALSE in above
+table(true=dat[-train_index,"y"], pred=predict(model, newdata=dat[-train_index,]))
+```
+
+
+##
+
+Is this disparity because of imbalance in the training/testing partition?  Find the proportion of class `2` in your training partition and see if it is broadly representative of the underlying 25\% of class 2 in the data as a whole.  
+
+```{r}
+(sum(train_data$y==2))/(nrow(train_data))
+```
+
+I do not think there is disparity in the classification results. Also, the split is 28% class 2, which is close to 25%. 
+
+##
+
+Let's try and balance the above to solutions via cross-validation.  Using the `tune` function, pass in the training data, and a list of the following cost and $\gamma$ values: {0.1, 1, 10, 100, 1000} and {0.5, 1,2,3,4}.  Save the output of this function in a variable called `tune.out`.  
+
+```{r}
+
+set.seed(1)
+gammas = c(0.5,1,2,3,4)
+costs=c(0.1,1,10,100,1000)
+
+
+tune.out <- tune.svm(y ~ ., data= train_data, kernel="radial", rangers = list(cost=costs, gamma=gammas))
+```
+
+I will take `tune.out` and use the best model according to error rate to test on our data.  I will report a confusion matrix corresponding to the 100 predictions.  
+
+
+```{r}
+table(true=dat[-train_index,"y"], pred=predict(tune.out$best.model, newdata=dat[-train_index,]))
+```
+
+##
+
+Comment on the confusion matrix.  How have we improved upon the model in question 2 and what qualifications are still necessary for this improved model.  
+
+The confusion matrix more accurately predicts on our data. It is still worth worrying about overfitting this data, especially as we increase our cost. 
+
+# 
+Let's turn now to decision trees.  
+
+```{r}
+library(kmed)
+data(heart)
+library(tree)
+```
+
+## 
+
+The response variable is currently a categorical variable with four levels.  Convert heart disease into binary categorical variable.  Then, ensure that it is properly stored as a factor. 
+
+```{r}
+##just so you know, sometimes your questions can be confusing. For instance, which variable is our "response variable" and "convert heart disease into..." does not make sense when there is no variable labelled "heart disease" Like I can assume the response variable is "cp" because it is the only one with four levels, but 1)I'm not sure if I'm correct 2) I have no idea was "cp" means, so I have no clue how to properly evaluate. All that being said, I might be missing the codebook or something, so if that's the case, I apologize for complaining in the comments. 
+
+##I am leaving a second comment after finding the documentation related to these data. I wasted an hour and a half trying to change the levels of the "cp" variable (which is already a factored variable) when I did not have to. I am really frustrated, but I also recognize that the answer to the problem I had was readily available given that I was able to find it on my own eventually. 
+
+HeartDisease = ifelse(heart$class==0, "No", "Yes")
+HeartDisease <-as.factor(HeartDisease)
+class(HeartDisease)
+heart$HeartDisease <- HeartDisease
+heart = subset(heart, select = -class)
+```
+
+## 
+
+Train a classification tree on a 240 observation training subset (using the seed I have set for you).  Plot the tree.  
+
+```{r}
+library(rpart.plot)
+set.seed(101)
+train=sample(1:nrow(heart), 240)
+
+tree_model <- rpart(HeartDisease ~ ., data = heart[train, ], method = "class")
+
+
+summary(tree_model)
+plot(tree_model)
+par(xpd = NA)
+text(tree_model, cex = 0.6)
+
+```
+
+
+## 
+
+Use the trained model to classify the remaining testing points.  Create a confusion matrix to evaluate performance.  Report the classification error rate.  
+
+```{r}
+test <- setdiff(1:nrow(heart), train)
+
+predictions <- predict(tree_model, newdata = heart[test, ], type = "class")
+
+actual_labels <- heart$HeartDisease[test]
+
+conf_matrix<-table(Actual = actual_labels, Predicted = predictions)
+
+error_rate <- 1 - sum(diag(conf_matrix)) / sum(conf_matrix)
+error_rate
+conf_matrix
+```
+
+##  
+
+Above we have a fully grown (bushy) tree.  Now, cross validate it using the `cv.tree` command.  Specify cross validation to be done according to the misclassification rate.  Choose an ideal number of splits, and plot this tree.  Finally, use this pruned tree to test on the testing set.  Report a confusion matrix and the misclassification rate.  
+
+```{r}
+##cv_result <- cv.tree(tree_model, FUN = prune.misclass)
+tree_model <- rpart(HeartDisease ~ ., data = heart[train, ], method = "class")
+
+##I clearly have made a mistake somewhere. The error I am getting just reads, "Not legitimate tree" I think it is related to the rpart command, so now I am making another tree below using the tree command to see if that works better for me. 
+
+tree.heart <- tree(HeartDisease ~., heart[train, ])
+cv_result <- cv.tree(tree.heart, FUN= prune.misclass)
+
+pruned_tree <- prune(tree_model, cp = cv_result$dev[which.min(cv_result$dev)])
+
+predictions_pruned <- predict(pruned_tree, newdata = heart[test, ], type = "class")
+conf_matrix_pruned <- table(Actual = heart$HeartDisease[test], Predicted = predictions_pruned)
+error_rate_pruned <- 1 - sum(diag(conf_matrix_pruned)) / sum(conf_matrix_pruned)
+
+conf_matrix_pruned
+error_rate_pruned
+```
+
+
+##
+
+Discuss the trade-off in accuracy and interpretability in pruning the above tree. 
+
+The pruned tree is substantially less accurate, with around a 15% increase in error rate. The trade-off here is essentially that our tree becomes more easily understood the more we prune it, however, it is generally less accurate when fitted on fewer data.
+
+## 
+
+Discuss the ways a decision tree could manifest algorithmic bias.  
+
+A really easy way a decision tree could create algorithmic bias is if the tree is trained on biased data. The model has a chance to overstate those biases that may exist in these data.
